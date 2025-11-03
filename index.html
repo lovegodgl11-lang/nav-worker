@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Update version count down "><meta charset="UTF-8">
+<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Inbox "><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="./style.css"><script src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.js" async=""></script><script type="importmap">{
   "imports": {}
 }</script></head><body>
@@ -17,6 +17,10 @@
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .hidden { display: none; }
         .countdown-overdue { color: #ef4444; font-weight: bold; }
+        #notification-badge, #inbox-badge { top: -4px; right: -4px; }
+        .notification-dropdown { display: none; }
+        .notification-dropdown.show { display: block; }
+        .notification-item.unread { background-color: #eef2ff; }
     </style>
 
 
@@ -66,9 +70,20 @@
                  <p class="text-gray-600">Welcome, <span id="worker-name" class="font-semibold"></span>!</p>
             </div>
             <div class="flex items-center gap-4">
-                 <div id="notification-bell" class="relative">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-                    <span id="notification-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center hidden"></span>
+                 <div class="relative">
+                    <button id="notification-bell" class="relative text-gray-600 hover:text-indigo-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                        <span id="notification-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center hidden"></span>
+                    </button>
+                    <div id="notification-dropdown" class="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl hidden z-20 border max-h-96 overflow-y-auto">
+                        <!-- Notifications will be rendered here -->
+                    </div>
+                </div>
+                 <div class="relative">
+                    <button id="inbox-icon" class="relative text-gray-600 hover:text-indigo-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        <span id="inbox-badge" class="absolute bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center hidden"></span>
+                    </button>
                 </div>
                 <button id="logout-btn" class="text-sm font-semibold text-red-600 hover:underline">Logout</button>
             </div>
@@ -94,6 +109,18 @@
 
     <div id="toast" class="hidden fixed bottom-5 right-5 bg-gray-900 text-white py-2 px-4 rounded-lg shadow-lg"></div>
 
+    <div id="inbox-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4 hidden">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[80vh]">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-lg font-bold">Message Inbox</h3>
+                <button id="inbox-close-btn" class="text-gray-500 hover:text-gray-800 text-2xl">×</button>
+            </div>
+            <div id="inbox-list" class="overflow-y-auto p-2">
+                <!-- Messages will be rendered here as a table -->
+            </div>
+        </div>
+    </div>
+
     <script>
         const firebaseConfig = {
             apiKey: "AIzaSyC0_DQIiyaVQllFH4pxH1Dm3r2kFXXoOgc",
@@ -106,13 +133,18 @@
         let currentUser = null;
         let myTasks = {};
         let countdownIntervals = {};
+        let notifications = [];
+        let unreadCount = 0;
+        let inboxUnreadCount = 0;
 
         // DOM Elements
         const authView = document.getElementById('auth-view');
         const dashboardView = document.getElementById('dashboard-view');
         const loginSection = document.getElementById('login-section');
         const registerSection = document.getElementById('register-section');
+        const notificationBell = document.getElementById('notification-bell');
         const notificationBadge = document.getElementById('notification-badge');
+        const notificationDropdown = document.getElementById('notification-dropdown');
 
         function showToast(message) {
             const toast = document.getElementById('toast');
@@ -128,6 +160,78 @@
             speechSynthesis.speak(utterance);
         }
 
+        // --- NOTIFICATION SYSTEM ---
+        function addNotification(message, options = {}) {
+            notifications.unshift({ id: Date.now(), message, read: false, timestamp: new Date(), ...options });
+            unreadCount++;
+            inboxUnreadCount++;
+            updateNotificationUI();
+            updateInboxBadge();
+            renderInbox();
+        }
+
+        function updateNotificationUI() {
+            notificationBadge.textContent = unreadCount;
+            notificationBadge.classList.toggle('hidden', unreadCount === 0);
+            renderNotifications();
+        }
+
+        function renderNotifications() {
+             const dropdown = document.getElementById('notification-dropdown');
+            if (notifications.length === 0) {
+                dropdown.innerHTML = `<p class="p-4 text-center text-sm text-gray-500">No notifications</p>`;
+            } else {
+                 dropdown.innerHTML = notifications.map(n => `
+                    <div class="p-3 border-b text-sm ${!n.read ? 'unread font-semibold' : 'text-gray-600'}">
+                        ${n.message}
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function updateInboxBadge() {
+            const badge = document.getElementById('inbox-badge');
+            badge.textContent = inboxUnreadCount;
+            badge.classList.toggle('hidden', inboxUnreadCount === 0);
+        }
+
+        function renderInbox() {
+            const inboxList = document.getElementById('inbox-list');
+            if (notifications.length === 0) {
+                inboxList.innerHTML = `<p class="p-8 text-center text-gray-500">Your inbox is empty.</p>`;
+                return;
+            }
+            inboxList.innerHTML = `
+                <table class="w-full text-sm">
+                    <tbody>
+                        ${notifications.map(n => `
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-3">
+                                    <p class="${!n.read ? 'font-semibold' : ''}">${n.message}</p>
+                                    <p class="text-xs text-gray-500">${n.timestamp.toLocaleString()}</p>
+                                </td>
+                                <td class="p-3 text-right">
+                                    <button onclick="deleteNotification(${n.id})" class="text-red-500 hover:text-red-700 text-xs font-semibold">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        function deleteNotification(id) {
+            const index = notifications.findIndex(n => n.id === id);
+            if (index > -1) {
+                notifications.splice(index, 1);
+                unreadCount = notifications.filter(n => !n.read).length;
+                inboxUnreadCount = unreadCount;
+                updateNotificationUI();
+                updateInboxBadge();
+                renderInbox();
+            }
+        }
+
         function displayTasks(tasks) {
             const tbody = document.getElementById('tasks-tbody');
             
@@ -136,14 +240,12 @@
 
             const tasksArray = Object.entries(tasks).filter(([key, task]) => task.assignedTo === currentUser.id && task.status !== 'Completed');
             
+            const pendingTasksCount = tasksArray.filter(([key, task]) => task.status === 'Pending').length;
+            
             if (tasksArray.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="text-center p-8 text-gray-500">No active tasks assigned to you.</td></tr>';
-                notificationBadge.classList.add('hidden');
                 return;
             }
-
-            notificationBadge.textContent = tasksArray.length;
-            notificationBadge.classList.remove('hidden');
 
             const sortedTasks = tasksArray.sort(([, a], [, b]) => a.timestamp - b.timestamp);
 
@@ -267,18 +369,40 @@
             const tasksRef = db.ref('workerTasks');
             tasksRef.on('value', (snapshot) => {
                 const allTasks = snapshot.val() || {};
+
+                // --- AUTOMATIC NOTIFICATION CLEANUP ---
+                const activeTaskIds = new Set(
+                    Object.entries(allTasks)
+                    .filter(([key, task]) => task.assignedTo === currentUser.id && task.status !== 'Completed')
+                    .map(([key, task]) => key)
+                );
+                
+                const originalNotifCount = notifications.length;
+                notifications = notifications.filter(n => !n.taskId || activeTaskIds.has(n.taskId));
+                 if (notifications.length < originalNotifCount) {
+                    unreadCount = notifications.filter(n => !n.read).length;
+                    inboxUnreadCount = unreadCount;
+                    updateNotificationUI();
+                    updateInboxBadge();
+                    renderInbox();
+                }
+                // --- END CLEANUP ---
+
                 const oldTasks = { ...myTasks };
                 myTasks = allTasks;
                 displayTasks(myTasks);
 
-                Object.keys(myTasks).forEach(taskId => {
-                    const task = myTasks[taskId];
-                    if (task.assignedTo === currentUser.id && !oldTasks[taskId]) {
-                        const message = `New task assigned: ${task.details} for ${task.customerName}.`;
-                        showToast(message);
-                        speak(message);
-                    }
-                });
+                const newTasksAssigned = Object.keys(myTasks).filter(taskId => 
+                    myTasks[taskId].assignedTo === currentUser.id && !oldTasks[taskId]
+                );
+                
+                if(newTasksAssigned.length > 0) {
+                    const task = myTasks[newTasksAssigned[0]];
+                    const message = `New task: ${task.details} for ${task.customerName}.`;
+                    showToast(message);
+                    speak(message);
+                    addNotification(message, { taskId: newTasksAssigned[0] });
+                }
             });
         }
 
@@ -330,6 +454,12 @@
             if (db) db.ref('workerTasks').off();
             dashboardView.classList.add('hidden');
             authView.classList.remove('hidden');
+            notifications = [];
+            unreadCount = 0;
+            inboxUnreadCount = 0;
+            updateNotificationUI();
+            updateInboxBadge();
+            renderInbox();
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -361,11 +491,43 @@
             document.getElementById('register-form').addEventListener('submit', registerWorker);
             document.getElementById('login-form').addEventListener('submit', loginWorker);
             document.getElementById('logout-btn').addEventListener('click', logout);
+
+            // Notification Bell Listener
+            notificationBell.addEventListener('click', (e) => {
+                e.stopPropagation();
+                notificationDropdown.classList.toggle('show');
+                if (notificationDropdown.classList.contains('show')) {
+                    unreadCount = 0;
+                    notifications.forEach(n => n.read = true);
+                    updateNotificationUI();
+                }
+            });
+            document.addEventListener('click', (e) => {
+                if (!notificationBell.contains(e.target) && !notificationDropdown.contains(e.target)) {
+                    notificationDropdown.classList.remove('show');
+                }
+            });
+            
+             // Inbox Listeners
+            const inboxIcon = document.getElementById('inbox-icon');
+            const inboxModal = document.getElementById('inbox-modal');
+            const inboxCloseBtn = document.getElementById('inbox-close-btn');
+
+            inboxIcon.addEventListener('click', () => {
+                inboxModal.classList.remove('hidden');
+                inboxUnreadCount = 0;
+                updateInboxBadge();
+            });
+
+            inboxCloseBtn.addEventListener('click', () => {
+                inboxModal.classList.add('hidden');
+            });
         });
 
         window.updateTaskStatus = updateTaskStatus;
         window.setETA = setETA;
         window.reportDelay = reportDelay;
+        window.deleteNotification = deleteNotification;
     </script>
 
 
