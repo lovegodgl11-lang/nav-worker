@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Count down "><meta charset="UTF-8">
+<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Update version count down "><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="./style.css"><script src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.js" async=""></script><script type="importmap">{
   "imports": {}
 }</script></head><body>
@@ -130,7 +130,6 @@
 
         function displayTasks(tasks) {
             const tbody = document.getElementById('tasks-tbody');
-            tbody.innerHTML = '';
             
             Object.values(countdownIntervals).forEach(clearInterval);
             countdownIntervals = {};
@@ -146,13 +145,14 @@
             notificationBadge.textContent = tasksArray.length;
             notificationBadge.classList.remove('hidden');
 
-            tasksArray.sort(([, a], [, b]) => a.timestamp - b.timestamp).forEach(([taskId, task]) => {
+            const sortedTasks = tasksArray.sort(([, a], [, b]) => a.timestamp - b.timestamp);
+
+            const rowsHtml = sortedTasks.map(([taskId, task]) => {
                 let statusHtml;
                 let actionsHtml;
                 
                 if (task.eta && task.etaSetTimestamp) {
                     statusHtml = `<div id="countdown-${taskId}" class="font-semibold text-lg">--:--</div>`;
-                    startCountdown(taskId, task.eta, task.etaSetTimestamp);
                 } else {
                      statusHtml = `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-200 text-yellow-800">Pending</span>`;
                 }
@@ -170,7 +170,7 @@
                      actionsHtml = `<button onclick="updateTaskStatus('${taskId}', 'In Progress')" class="bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md">Start Work</button>`;
                 }
 
-                const row = `
+                return `
                     <tr class="border-b">
                         <td class="px-4 py-3">${task.customerName}</td>
                         <td class="px-4 py-3 text-gray-600">${task.details}</td>
@@ -178,7 +178,15 @@
                         <td class="px-4 py-3">${actionsHtml}</td>
                     </tr>
                 `;
-                tbody.innerHTML += row;
+            }).join('');
+            
+            tbody.innerHTML = rowsHtml;
+
+            // NOW start the countdowns after elements are in the DOM
+            sortedTasks.forEach(([taskId, task]) => {
+                if (task.eta && task.etaSetTimestamp) {
+                    startCountdown(taskId, task.eta, task.etaSetTimestamp);
+                }
             });
         }
         
