@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Employee task manager "><meta charset="UTF-8">
+<html lang="en" class=""><head><script>window.livecodes = window.livecodes || {};</script><title>Nav worker </title><meta name="title" content="Nav worker "><meta name="description" content="Count down "><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="./style.css"><script src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.js" async=""></script><script type="importmap">{
   "imports": {}
 }</script></head><body>
@@ -16,6 +16,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .hidden { display: none; }
+        .countdown-overdue { color: #ef4444; font-weight: bold; }
     </style>
 
 
@@ -79,8 +80,8 @@
                         <tr>
                             <th class="px-4 py-3">Order</th>
                             <th class="px-4 py-3">Task Details</th>
-                            <th class="px-4 py-3">Status</th>
-                            <th class="px-4 py-3">Actions / ETA</th>
+                            <th class="px-4 py-3">Status / Countdown</th>
+                            <th class="px-4 py-3">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="tasks-tbody">
@@ -104,6 +105,7 @@
         let db;
         let currentUser = null;
         let myTasks = {};
+        let countdownIntervals = {};
 
         // DOM Elements
         const authView = document.getElementById('auth-view');
@@ -130,6 +132,9 @@
             const tbody = document.getElementById('tasks-tbody');
             tbody.innerHTML = '';
             
+            Object.values(countdownIntervals).forEach(clearInterval);
+            countdownIntervals = {};
+
             const tasksArray = Object.entries(tasks).filter(([key, task]) => task.assignedTo === currentUser.id && task.status !== 'Completed');
             
             if (tasksArray.length === 0) {
@@ -145,24 +150,24 @@
                 let statusHtml;
                 let actionsHtml;
                 
-                switch(task.status) {
-                    case 'Pending':
-                        statusHtml = '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-200 text-yellow-800">Pending</span>';
-                        actionsHtml = `<button onclick="updateTaskStatus('${taskId}', 'In Progress')" class="bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md">Start Work</button>`;
-                        break;
-                    case 'In Progress':
-                        statusHtml = '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-200 text-blue-800">In Progress</span>';
-                        actionsHtml = `
-                            <div class="flex items-center gap-2">
-                                <input type="number" id="eta-${taskId}" class="w-20 border rounded px-2 py-1 text-sm" placeholder="ETA (min)" value="${task.eta || ''}">
-                                <button onclick="setETA('${taskId}')" class="bg-gray-500 text-white text-xs px-2 py-1 rounded">Set ETA</button>
-                                <button onclick="updateTaskStatus('${taskId}', 'Completed')" class="bg-green-500 text-white text-xs font-semibold py-1 px-3 rounded-md">Complete</button>
-                            </div>
-                        `;
-                        break;
-                    default:
-                        statusHtml = `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-800">${task.status}</span>`;
-                        actionsHtml = '';
+                if (task.eta && task.etaSetTimestamp) {
+                    statusHtml = `<div id="countdown-${taskId}" class="font-semibold text-lg">--:--</div>`;
+                    startCountdown(taskId, task.eta, task.etaSetTimestamp);
+                } else {
+                     statusHtml = `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-200 text-yellow-800">Pending</span>`;
+                }
+
+                if (task.status === 'In Progress') {
+                    actionsHtml = `
+                        <div class="flex items-center flex-wrap gap-2">
+                            <input type="number" id="eta-${taskId}" class="w-20 border rounded px-2 py-1 text-sm" placeholder="ETA (min)" value="${task.eta || ''}">
+                            <button onclick="setETA('${taskId}')" class="bg-gray-500 text-white text-xs px-2 py-1 rounded">Set ETA</button>
+                            <button onclick="reportDelay('${taskId}')" class="bg-yellow-500 text-white text-xs px-2 py-1 rounded">Report Delay</button>
+                            <button onclick="updateTaskStatus('${taskId}', 'Completed')" class="bg-green-500 text-white text-xs font-semibold py-1 px-3 rounded-md">Complete</button>
+                        </div>
+                    `;
+                } else { // Pending
+                     actionsHtml = `<button onclick="updateTaskStatus('${taskId}', 'In Progress')" class="bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md">Start Work</button>`;
                 }
 
                 const row = `
@@ -177,6 +182,29 @@
             });
         }
         
+        function startCountdown(taskId, etaMinutes, etaSetTimestamp) {
+            const countdownEl = document.getElementById(`countdown-${taskId}`);
+            if (!countdownEl) return;
+
+            const update = () => {
+                const totalSeconds = etaMinutes * 60;
+                const elapsedSeconds = (Date.now() - etaSetTimestamp) / 1000;
+                const remainingSeconds = totalSeconds - elapsedSeconds;
+
+                if (remainingSeconds <= 0) {
+                    countdownEl.textContent = "Overdue";
+                    countdownEl.classList.add('countdown-overdue');
+                } else {
+                    const minutes = Math.floor(remainingSeconds / 60);
+                    const seconds = Math.floor(remainingSeconds % 60);
+                    countdownEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    countdownEl.classList.remove('countdown-overdue');
+                }
+            };
+            update();
+            countdownIntervals[taskId] = setInterval(update, 1000);
+        }
+
         async function registerWorker(e) {
             e.preventDefault();
             const name = document.getElementById('register-name').value;
@@ -228,7 +256,6 @@
             dashboardView.classList.remove('hidden');
             document.getElementById('worker-name').textContent = currentUser.name;
             
-            // Listen for tasks assigned to this worker
             const tasksRef = db.ref('workerTasks');
             tasksRef.on('value', (snapshot) => {
                 const allTasks = snapshot.val() || {};
@@ -236,7 +263,6 @@
                 myTasks = allTasks;
                 displayTasks(myTasks);
 
-                // Check for new tasks assigned to me
                 Object.keys(myTasks).forEach(taskId => {
                     const task = myTasks[taskId];
                     if (task.assignedTo === currentUser.id && !oldTasks[taskId]) {
@@ -261,12 +287,15 @@
         async function setETA(taskId) {
             const etaInput = document.getElementById(`eta-${taskId}`);
             const eta = etaInput.value;
-            if (!eta || isNaN(eta)) {
-                showToast("Please enter a valid number for ETA.");
+            if (!eta || isNaN(eta) || eta <= 0) {
+                showToast("Please enter a valid number of minutes for ETA.");
                 return;
             }
             try {
-                await db.ref(`workerTasks/${taskId}/eta`).set(parseInt(eta));
+                await db.ref(`workerTasks/${taskId}`).update({
+                    eta: parseInt(eta),
+                    etaSetTimestamp: firebase.database.ServerValue.TIMESTAMP
+                });
                 showToast("ETA updated.");
             } catch (error) {
                 console.error("ETA update error:", error);
@@ -274,10 +303,23 @@
             }
         }
 
+        async function reportDelay(taskId) {
+            const reason = prompt("Please enter a reason for the delay (e.g., machine problem, fabric issue):");
+            if (reason) {
+                try {
+                    await db.ref(`workerTasks/${taskId}/delayReason`).set(reason);
+                    showToast("Delay reason reported to supervisor.");
+                } catch (error) {
+                    console.error("Delay report error:", error);
+                    showToast("Failed to report delay.");
+                }
+            }
+        }
+
         function logout() {
             currentUser = null;
             sessionStorage.removeItem('loggedInWorker');
-            if (db) db.ref('workerTasks').off(); // Detach listener
+            if (db) db.ref('workerTasks').off();
             dashboardView.classList.add('hidden');
             authView.classList.remove('hidden');
         }
@@ -293,14 +335,12 @@
                 alert("Could not connect to the database.");
             }
 
-            // Check session storage for logged in user
             const savedWorker = sessionStorage.getItem('loggedInWorker');
             if (savedWorker) {
                 currentUser = JSON.parse(savedWorker);
                 showDashboard();
             }
 
-            // Auth view toggling
             document.getElementById('show-register-btn').addEventListener('click', () => {
                 loginSection.classList.add('hidden');
                 registerSection.classList.remove('hidden');
@@ -310,15 +350,14 @@
                 loginSection.classList.remove('hidden');
             });
 
-            // Form submissions
             document.getElementById('register-form').addEventListener('submit', registerWorker);
             document.getElementById('login-form').addEventListener('submit', loginWorker);
             document.getElementById('logout-btn').addEventListener('click', logout);
         });
 
-        // Make functions globally accessible
         window.updateTaskStatus = updateTaskStatus;
         window.setETA = setETA;
+        window.reportDelay = reportDelay;
     </script>
 
 
